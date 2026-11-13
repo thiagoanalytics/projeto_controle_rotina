@@ -7,11 +7,10 @@ import json
 import uuid
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-
+from fastapi.responses import HTMLResponse, FileResponse
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = BASE_DIR / "config" / "rotinas.json"
@@ -45,6 +44,13 @@ app.mount(
     StaticFiles(directory=BASE_DIR / "static"),
     name="static"
 )
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return FileResponse(
+        BASE_DIR / "static" / "favicon.svg",
+        media_type="image/svg+xml"
+    )
 
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
