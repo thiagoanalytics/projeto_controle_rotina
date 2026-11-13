@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ops Control Center</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">OC</div>
+        <div><strong>Ops Control</strong><small>Routine Manager</small></div>
+      </div>
+      <nav>
+        <a class="nav-item active" href="#inicio">◫ <span>Visão geral</span></a>
+        <a class="nav-item" href="#rotinas">▤ <span>Minhas rotinas</span></a>
+        <a class="nav-item" href="#historico">◷ <span>Histórico</span></a>
+      </nav>
+      <div class="sidebar-note">
+        <span class="status-dot"></span>
+        <span>Controle local ativo</span>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">CENTRAL DE OPERAÇÕES</p>
+          <h1>Bom trabalho!</h1>
+          <p class="muted">Acompanhe suas verificações e registre o tempo dedicado a cada rotina.</p>
+        </div>
+        <div class="date-chip" id="todayLabel">Hoje</div>
+      </header>
+
+      <section class="stats-grid" id="inicio">
+        <article class="stat-card"><span class="stat-label">Rotinas cadastradas</span><strong id="totalRoutines">—</strong><small>Em todas as categorias</small></article>
+        <article class="stat-card"><span class="stat-label">Concluídas hoje</span><strong id="completedToday">—</strong><small>Execuções finalizadas</small></article>
+        <article class="stat-card"><span class="stat-label">Tempo monitorado hoje</span><strong id="timeToday">—</strong><small>Tempo efetivamente registrado</small></article>
+      </section>
+
+      <section class="active-panel" id="activePanel">
+        <div class="active-copy">
+          <span class="section-kicker">EXECUÇÃO ATUAL</span>
+          <h2>Nenhuma tarefa em andamento</h2>
+          <p>Escolha uma rotina abaixo e clique em iniciar para começar a registrar seu tempo.</p>
+        </div>
+        <div class="active-actions">
+          <div class="timer" id="activeTimer">00:00:00</div>
+          <button class="button button-dark" id="finishButton" disabled>Finalizar tarefa</button>
+        </div>
+      </section>
+
+      <section class="section-block" id="rotinas">
+        <div class="section-heading">
+          <div><span class="section-kicker">SEU DIA</span><h2>Minhas rotinas</h2></div>
+          <span class="muted" id="routineCount">Carregando...</span>
+        </div>
+        <div id="categories" class="category-grid"></div>
+      </section>
+
+      <section class="section-block" id="historico">
+        <div class="section-heading">
+          <div><span class="section-kicker">ACOMPANHAMENTO</span><h2>Últimas execuções</h2></div>
+          <span class="muted">Registros salvos localmente</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Rotina</th><th>Categoria</th><th>Início</th><th>Fim</th><th>Duração</th><th>Status</th></tr></thead>
+            <tbody id="historyRows"><tr><td colspan="6" class="empty">Nenhuma execução registrada ainda.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+      <footer>Ops Control Center <span>•</span> MVP local</footer>
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status"></div>
+  <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+{
+  "categorias": [
+    {
+      "id": "controle",
+      "nome": "Controle",
+      "descricao": "Governança, qualidade e acompanhamento dos processos.",
+      "icone": "shield-check",
+      "rotinas": [
+        {
+          "id": "data_quality",
+          "nome": "Data Quality",
+          "descricao": "Verificar alertas e atualizações das tabelas monitoradas.",
+          "url": "https://exemplo.com/data-quality",
+          "frequencia": "diaria",
+          "horarios": [
+            "08:00",
+            "10:00",
+            "12:00",
+            "14:00",
+            "16:00"
+          ],
+          "ativo": true
+        },
+        {
+          "id": "monitor_etl",
+          "nome": "Monitoramento ETL",
+          "descricao": "Conferir execuções, falhas e atrasos das cargas.",
+          "url": "https://exemplo.com/monitor-etl",
+          "frequencia": "diaria",
+          "horarios": [
+            "08:00",
+            "12:00",
+            "16:00"
+          ],
+          "ativo": true
+        }
+      ]
+    },
+    {
+      "id": "relatorios",
+      "nome": "Relatórios",
+      "descricao": "Conferência dos relatórios e dashboards operacionais.",
+      "icone": "chart",
+      "rotinas": [
+        {
+          "id": "dashboard_rechamada",
+          "nome": "Dashboard Rechamada",
+          "descricao": "Verificar atualização e consistência dos indicadores.",
+          "url": "https://exemplo.com/dashboard-rechamada",
+          "frequencia": "diaria",
+          "horarios": [
+            "09:00",
+            "11:00",
+            "14:00"
+          ],
+          "ativo": true
+        },
+        {
+          "id": "dashboard_atendimento",
+          "nome": "Dashboard Atendimento",
+          "descricao": "Validar atualização e volume dos dados.",
+          "url": "https://exemplo.com/dashboard-atendimento",
+          "frequencia": "diaria",
+          "horarios": [
+            "10:00",
+            "13:00",
+            "16:00"
+          ],
+          "ativo": true
+        }
+      ]
+    }
+  ]
+}
