@@ -49,29 +49,52 @@
 
       <section class="stats-grid" id="inicio">
         <article class="stat-card">
-          <span class="stat-label">Rotinas cadastradas</span>
+          <span class="stat-label">Rotinas ativas</span>
           <strong id="totalRoutines">—</strong>
           <small>Em todas as categorias</small>
         </article>
 
         <article class="stat-card">
-          <span class="stat-label">Concluídas hoje</span>
-          <strong id="completedToday">—</strong>
-          <small>Execuções finalizadas</small>
+          <span class="stat-label">Execuções previstas</span>
+          <strong id="plannedToday">—</strong>
+          <small>Programadas para hoje</small>
         </article>
 
         <article class="stat-card">
-          <span class="stat-label">Tempo monitorado hoje</span>
+          <span class="stat-label">Concluídas hoje</span>
+          <strong id="completedToday">—</strong>
+          <small id="completionRate">—</small>
+        </article>
+
+        <article class="stat-card">
+          <span class="stat-label">Atrasadas</span>
+          <strong id="lateToday">—</strong>
+          <small>Horário previsto não iniciado</small>
+        </article>
+
+        <article class="stat-card">
+          <span class="stat-label">Tempo monitorado</span>
           <strong id="timeToday">—</strong>
           <small>Tempo efetivamente registrado</small>
         </article>
+      </section>
+
+      <section class="progress-panel">
+        <div class="progress-heading">
+          <strong>Progresso diário</strong>
+          <span id="progressLabel">0% concluído</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <p id="progressDescription">Aguardando atualização das ocorrências.</p>
       </section>
 
       <section class="active-panel" id="activePanel">
         <div class="active-copy">
           <span class="section-kicker">EXECUÇÃO ATUAL</span>
           <h2>Nenhuma tarefa em andamento</h2>
-          <p>Escolha uma rotina abaixo e clique em iniciar para começar a registrar seu tempo.</p>
+          <p>Escolha um horário abaixo e clique em iniciar para começar a registrar seu tempo.</p>
         </div>
 
         <div class="active-actions">
@@ -109,6 +132,7 @@
               <tr>
                 <th>Rotina</th>
                 <th>Categoria</th>
+                <th>Previsto</th>
                 <th>Início</th>
                 <th>Fim</th>
                 <th>Duração</th>
@@ -117,14 +141,14 @@
             </thead>
             <tbody id="historyRows">
               <tr>
-                <td colspan="6" class="empty">Nenhuma execução registrada ainda.</td>
+                <td colspan="7" class="empty">Nenhuma execução registrada ainda.</td>
               </tr>
             </tbody>
           </table>
         </div>
       </section>
 
-      <footer>Ops Control Center <span>•</span> MVP local</footer>
+      <footer>Ops Control Center <span>•</span> Routine Manager</footer>
     </main>
   </div>
 

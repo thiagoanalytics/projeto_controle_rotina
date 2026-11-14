@@ -2,14 +2,15 @@
 let appState = null;
 let tickHandle = null;
 let notificationHandle = null;
+let refreshHandle = null;
+let refreshing = false;
 
-const $ = (id) => document.getElementById(id);
+// Controle do accordion
+let expandedRoutineId = null;
 
-// Controle das notificações já enviadas nesta sessão.
+const $ = id => document.getElementById(id);
+
 const sentNotifications = new Set();
-
-// Ocorrências canceladas porque a rotina foi iniciada.
-const dismissedOccurrences = new Set();
 
 function parseDate(value) {
   return value ? new Date(value) : null;
@@ -18,9 +19,10 @@ function parseDate(value) {
 function durationText(seconds) {
   if (seconds == null) return "—";
 
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
+  const value = Math.max(0, Number(seconds) || 0);
+  const h = Math.floor(value / 3600);
+  const m = Math.floor((value % 3600) / 60);
+  const s = value % 60;
 
   return [h, m, s]
     .map(v => String(v).padStart(2, "0"))
@@ -69,17 +71,50 @@ async function api(url, options = {}) {
   return data;
 }
 
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, c => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[c]);
+}
+
+function safeUrl(value) {
+  try {
+    const url = new URL(value);
+
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return escapeHtml(url.href);
+    }
+  } catch (_) {}
+
+  return "#";
+}
+
 function flattenRoutines(config) {
   return (config.categorias || []).flatMap(category =>
     (category.rotinas || [])
-      .filter(r => r.ativo !== false)
-      .map(r => ({
-        ...r,
+      .filter(routine => routine.ativo !== false)
+      .map(routine => ({
+        ...routine,
         categoria_nome: category.nome,
         categoria_id: category.id
       }))
   );
 }
+
+function occurrenceKey(routineId, time) {
+  return `${routineId}|${time}`;
+}
+
+function getOccurrencesForRoutine(routineId) {
+  return (appState?.ocorrencias || []).filter(
+    item => item.rotina_id === routineId
+  );
+}
+
 
 // --------------------------------------------------
 // NOTIFICAÇÕES
@@ -121,7 +156,7 @@ async function requestNotificationPermission() {
       toast("Notificações ativadas com sucesso!");
       checkScheduledNotifications();
     } else if (permission === "denied") {
-      toast("Permissão negada. Verifique as configurações do Chrome.");
+      toast("Permissão negada. Verifique as configurações do navegador.");
     } else {
       toast("A permissão para notificações não foi concedida.");
     }
@@ -130,77 +165,46 @@ async function requestNotificationPermission() {
   }
 }
 
-function notificationKey(routineId, dateKey, time) {
-  return `${dateKey}|${routineId}|${time}`;
-}
-
-function getTodayOccurrences() {
-  if (!appState?.config) return [];
-
-  const now = new Date();
-  const dateKey = todayKey();
-
-  return flattenRoutines(appState.config).flatMap(routine => {
-    return (routine.horarios || [])
-      .filter(time => /^\d{2}:\d{2}$/.test(time))
-      .map(time => {
-        const [hours, minutes] = time.split(":").map(Number);
-
-        const scheduled = new Date(
-          now.getFullYear(),
-          now.getMonth(),
-          now.getDate(),
-          hours,
-          minutes,
-          0,
-          0
-        );
-
-        return {
-          routine,
-          time,
-          scheduled,
-          dateKey,
-          key: notificationKey(routine.id, dateKey, time)
-        };
-      });
-  });
+function notificationKey(occurrence) {
+  return `${occurrence.data_prevista}|${occurrence.rotina_id}|${occurrence.horario_previsto}`;
 }
 
 function sendRoutineNotification(occurrence, type) {
   if (Notification.permission !== "granted") return;
 
-  const { routine, time, key } = occurrence;
-  const eventKey = `${key}|${type}`;
+  if (
+    occurrence.status === "concluida" ||
+    occurrence.status === "em_andamento"
+  ) {
+    return;
+  }
 
-  if (sentNotifications.has(eventKey)) return;
-  if (dismissedOccurrences.has(key)) return;
+  const key = `${notificationKey(occurrence)}|${type}`;
 
-  // Não notifica uma rotina que já está em execução.
-  if (appState?.ativa?.rotina_id === routine.id) return;
+  if (sentNotifications.has(key)) return;
 
   const messages = {
     before: {
       title: "Rotina próxima",
-      body: `${routine.nome}: faltam 5 minutos para o horário previsto (${time}).`
+      body: `${occurrence.rotina_nome}: faltam 5 minutos para ${occurrence.horario_previsto}.`
     },
     ontime: {
       title: "Horário da rotina",
-      body: `${routine.nome}: chegou o horário previsto (${time}).`
+      body: `${occurrence.rotina_nome}: chegou o horário previsto (${occurrence.horario_previsto}).`
     },
     late: {
       title: "Rotina atrasada",
-      body: `${routine.nome}: o horário previsto era ${time}. A rotina ainda não foi iniciada.`
+      body: `${occurrence.rotina_nome}: a execução prevista para ${occurrence.horario_previsto} ainda não foi iniciada.`
     }
   };
 
-  const message = messages[type];
-
   try {
+    const message = messages[type];
+
     const notification = new Notification(message.title, {
       body: message.body,
-      icon: "/static/favicon.ico",
-      tag: eventKey,
+      icon: "/static/favicon.svg",
+      tag: key,
       renotify: false
     });
 
@@ -209,64 +213,47 @@ function sendRoutineNotification(occurrence, type) {
       notification.close();
     };
 
-    sentNotifications.add(eventKey);
+    sentNotifications.add(key);
   } catch (error) {
     console.error("Erro ao exibir notificação:", error);
   }
 }
 
 function checkScheduledNotifications() {
-  if (!appState?.config) return;
+  if (!appState?.ocorrencias) return;
   if (!("Notification" in window)) return;
   if (Notification.permission !== "granted") return;
 
-  const now = new Date();
+  const now = Date.now();
 
-  getTodayOccurrences().forEach(occurrence => {
-    const difference = occurrence.scheduled.getTime() - now.getTime();
+  appState.ocorrencias.forEach(occurrence => {
+    if (
+      occurrence.status === "concluida" ||
+      occurrence.status === "em_andamento"
+    ) {
+      return;
+    }
 
-    // 5 minutos antes: janela de 5 minutos até o horário.
+    const scheduled = parseDate(occurrence.horario_data);
+
+    if (!scheduled) return;
+
+    const difference = scheduled.getTime() - now;
+
     if (difference <= 5 * 60 * 1000 && difference > 0) {
       sendRoutineNotification(occurrence, "before");
     }
 
-    // No horário: janela de até 1 minuto após o horário.
     if (difference <= 0 && difference > -60 * 1000) {
       sendRoutineNotification(occurrence, "ontime");
     }
 
-    // 5 minutos depois: janela entre 5 e 6 minutos de atraso.
-    if (difference <= -5 * 60 * 1000 && difference > -6 * 60 * 1000) {
+    if (difference <= -60 * 1000) {
       sendRoutineNotification(occurrence, "late");
     }
   });
 }
 
-// Quando uma rotina começa, cancela os alertas da ocorrência
-// mais próxima, desde que esteja dentro da janela de execução.
-function dismissOccurrenceForStartedRoutine(routineId) {
-  const now = new Date();
-
-  const candidates = getTodayOccurrences()
-    .filter(item => item.routine.id === routineId)
-    .map(item => ({
-      ...item,
-      difference: item.scheduled.getTime() - now.getTime()
-    }))
-    .filter(item =>
-      item.difference >= -10 * 60 * 1000 &&
-      item.difference <= 5 * 60 * 1000
-    )
-    .sort((a, b) =>
-      Math.abs(a.difference) - Math.abs(b.difference)
-    );
-
-  if (!candidates.length) return;
-
-  const occurrence = candidates[0];
-
-  dismissedOccurrences.add(occurrence.key);
-}
 
 // --------------------------------------------------
 // ESTATÍSTICAS
@@ -274,55 +261,95 @@ function dismissOccurrenceForStartedRoutine(routineId) {
 
 function renderStats() {
   const routines = flattenRoutines(appState.config);
-  const today = todayKey();
+  const occurrences = appState.ocorrencias || [];
 
-  const todays = appState.execucoes.filter(
-    x => (x.inicio || "").slice(0, 10) === today
+  const completed = occurrences.filter(
+    item => item.status === "concluida"
   );
 
-  const completed = todays.filter(
-    x => x.status === "concluida"
+  const late = occurrences.filter(
+    item => item.status === "atrasada"
   );
 
-  const seconds = completed.reduce(
-    (sum, x) => sum + (Number(x.duracao_segundos) || 0),
-    0
+  const planned = occurrences.length;
+
+  const percentage = planned
+    ? Math.round((completed.length / planned) * 100)
+    : 0;
+
+  const today = appState.data_referencia || todayKey();
+
+  const todaysExecutions = appState.execucoes.filter(
+    item => (item.data_prevista || item.inicio || "").slice(0, 10) === today
   );
+
+  const seconds = todaysExecutions
+    .filter(item => item.status === "concluida")
+    .reduce(
+      (sum, item) => sum + (Number(item.duracao_segundos) || 0),
+      0
+    );
 
   $("totalRoutines").textContent = routines.length;
+  $("plannedToday").textContent = planned;
   $("completedToday").textContent = completed.length;
+  $("lateToday").textContent = late.length;
+  $("completionRate").textContent = `${percentage}% das previstas`;
 
   $("timeToday").textContent = seconds >= 3600
     ? `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}min`
     : `${Math.floor(seconds / 60)}min`;
 
-  $("routineCount").textContent = `${routines.length} rotinas cadastradas`;
+  $("routineCount").textContent =
+    `${routines.length} rotinas · ${planned} execuções previstas`;
+
+  $("progressLabel").textContent = `${percentage}% concluído`;
+
+  $("progressFill").style.width = `${percentage}%`;
+
+  $("progressDescription").textContent =
+    `${completed.length} de ${planned} execuções concluídas · ${late.length} atrasadas.`;
 }
 
+
 // --------------------------------------------------
-// ROTINAS
+// ROTINAS E HORÁRIOS
 // --------------------------------------------------
+
+function statusLabel(status) {
+  const labels = {
+    concluida: "Concluída",
+    em_andamento: "Em andamento",
+    atrasada: "Atrasada",
+    futura: "Futura"
+  };
+
+  return labels[status] || "Não identificada";
+}
+
+function statusClass(status) {
+  const classes = {
+    concluida: "completed",
+    em_andamento: "active",
+    atrasada: "late",
+    futura: "future"
+  };
+
+  return classes[status] || "";
+}
 
 function renderCategories() {
   const active = appState.ativa;
+  const categories = appState.config.categorias || [];
 
-  const completedToday = new Set(
-    appState.execucoes
-      .filter(x =>
-        x.status === "concluida" &&
-        (x.inicio || "").slice(0, 10) === todayKey()
-      )
-      .map(x => x.rotina_id)
-  );
+  $("categories").innerHTML = categories.map(category => {
+    const routines = (category.rotinas || [])
+      .filter(routine => routine.ativo !== false);
 
-  $("categories").innerHTML = (appState.config.categorias || [])
-    .map(category => {
-      const routines = (category.rotinas || [])
-        .filter(r => r.ativo !== false);
+    const icon = category.icone === "chart" ? "▥" : "◈";
 
-      const icon = category.icone === "chart" ? "▥" : "◈";
-
-      return `<article class="category-card">
+    return `
+      <article class="category-card">
         <div class="category-title">
           <div class="category-icon">${icon}</div>
           <div>
@@ -332,45 +359,155 @@ function renderCategories() {
         </div>
 
         <div class="routine-list">
-          ${routines.map(r => {
-            const isActive = active && active.rotina_id === r.id;
-            const blocked = !!active && !isActive;
-            const done = completedToday.has(r.id);
+          ${routines.map(routine => {
+            const occurrences = getOccurrencesForRoutine(routine.id);
 
-            return `<div class="routine">
-              <div>
-                <h4>${escapeHtml(r.nome)}</h4>
-                <p>${escapeHtml(r.descricao || "")}</p>
-                <div class="routine-meta">
-                  ${escapeHtml((r.horarios || []).join(" · ") || "Sem horário definido")}
-                  ${done ? " · Já executada hoje" : ""}
+            const isActiveRoutine =
+              active && active.rotina_id === routine.id;
+
+            // Controle de expansão individual.
+            const isExpanded = expandedRoutineId === routine.id;
+
+            const completed = occurrences.filter(
+              item => item.status === "concluida"
+            ).length;
+
+            const late = occurrences.filter(
+              item => item.status === "atrasada"
+            ).length;
+
+            const nextOccurrence = occurrences.find(item =>
+              ["futura", "atrasada", "em_andamento"].includes(item.status)
+            );
+
+            const nextTime = nextOccurrence
+              ? nextOccurrence.horario_previsto
+              : "Concluída";
+
+            const occurrenceRows = occurrences.map(occurrence => {
+              const isActiveOccurrence =
+                isActiveRoutine &&
+                active.horario_previsto === occurrence.horario_previsto;
+
+              const blocked =
+                !!active && !isActiveOccurrence;
+
+              let buttonLabel = "Iniciar";
+
+              if (occurrence.status === "concluida") {
+                buttonLabel = "Concluída";
+              } else if (occurrence.status === "em_andamento") {
+                buttonLabel = "Em andamento";
+              } else if (occurrence.status === "atrasada") {
+                buttonLabel = "Iniciar atrasada";
+              }
+
+              const disabled =
+                blocked ||
+                occurrence.status === "concluida" ||
+                occurrence.status === "em_andamento";
+
+              return `
+                <div class="schedule-row">
+                  <div class="schedule-time">${escapeHtml(occurrence.horario_previsto)}</div>
+
+                  <span class="pill ${statusClass(occurrence.status)}">
+                    ${statusLabel(occurrence.status)}
+                  </span>
+
+                  <button
+                    class="button button-start schedule-button"
+                    data-start="${escapeHtml(routine.id)}"
+                    data-time="${escapeHtml(occurrence.horario_previsto)}"
+                    ${disabled ? "disabled" : ""}>
+                    ${buttonLabel}
+                  </button>
+                </div>
+              `;
+            }).join("");
+
+            return `
+              <div class="routine ${isExpanded ? "routine-expanded" : "routine-collapsed"}">
+
+                <div class="routine-main">
+
+                  <div
+                    class="routine-heading"
+                    data-toggle-routine="${escapeHtml(routine.id)}"
+                    role="button"
+                    tabindex="0"
+                    aria-expanded="${isExpanded}">
+
+                    <h4>
+                      ${escapeHtml(routine.nome)}
+                      <span class="routine-chevron">${isExpanded ? "▾" : "▸"}</span>
+                    </h4>
+
+                    <p>${escapeHtml(routine.descricao || "")}</p>
+
+                    <div class="routine-meta">
+                      ${escapeHtml(routine.frequencia || "Sem frequência definida")}
+                      · ${(routine.horarios || []).length} horários programados
+                      · ${completed}/${occurrences.length} concluídos
+                      ${late ? ` · ${late} atrasados` : ""}
+                      · Próximo: ${escapeHtml(nextTime)}
+                    </div>
+                  </div>
+
+                  <div class="schedule-list"
+                       style="display: ${isExpanded ? "block" : "none"};">
+                    ${occurrenceRows || '<p class="empty-schedule">Nenhum horário programado.</p>'}
+                  </div>
+
+                </div>
+
+                <div class="routine-actions">
+                  <a href="${safeUrl(routine.url)}"
+                     target="_blank"
+                     rel="noopener noreferrer">
+                    Abrir ↗
+                  </a>
                 </div>
               </div>
-
-              <div class="routine-actions">
-                <a href="${safeUrl(r.url)}" target="_blank" rel="noopener noreferrer">
-                  Abrir ↗
-                </a>
-
-                <button class="button button-start"
-                  data-start="${escapeHtml(r.id)}"
-                  ${blocked || isActive ? "disabled" : ""}>
-                  ${isActive ? "Em andamento" : "Iniciar"}
-                </button>
-              </div>
-            </div>`;
+            `;
           }).join("")}
         </div>
-      </article>`;
-    })
-    .join("");
+      </article>
+    `;
+  }).join("");
 
+  // Expandir/recolher uma rotina por vez.
+  document.querySelectorAll("[data-toggle-routine]").forEach(element => {
+    const toggle = () => {
+      const routineId = element.dataset.toggleRoutine;
+
+      expandedRoutineId =
+        expandedRoutineId === routineId ? null : routineId;
+
+      renderCategories();
+    };
+
+    element.addEventListener("click", toggle);
+
+    element.addEventListener("keydown", event => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        toggle();
+      }
+    });
+  });
+
+  // Botões de execução permanecem com o comportamento original.
   document.querySelectorAll("[data-start]").forEach(button => {
     button.addEventListener("click", () => {
-      startRoutine(button.dataset.start);
+      startRoutine(
+        button.dataset.start,
+        button.dataset.time
+      );
     });
   });
 }
+
 
 // --------------------------------------------------
 // EXECUÇÃO ATUAL
@@ -390,7 +527,7 @@ function renderActive() {
     title.textContent = active.rotina_nome;
 
     description.textContent =
-      `${active.categoria_nome || "Rotina"} · Iniciada às ${formatTime(active.inicio)}. Finalize quando concluir a verificação.`;
+      `${active.categoria_nome || "Rotina"} · Prevista para ${active.horario_previsto || "execução extra"} · Iniciada às ${formatTime(active.inicio)}.`;
 
     finish.disabled = false;
     updateTimer();
@@ -400,7 +537,7 @@ function renderActive() {
     title.textContent = "Nenhuma tarefa em andamento";
 
     description.textContent =
-      "Escolha uma rotina abaixo e clique em iniciar para começar a registrar seu tempo.";
+      "Escolha um horário abaixo e clique em iniciar para começar a registrar seu tempo.";
 
     $("activeTimer").textContent = "00:00:00";
     finish.disabled = true;
@@ -412,6 +549,8 @@ function updateTimer() {
 
   const start = parseDate(appState.ativa.inicio);
 
+  if (!start) return;
+
   const seconds = Math.max(
     0,
     Math.floor((Date.now() - start.getTime()) / 1000)
@@ -419,6 +558,7 @@ function updateTimer() {
 
   $("activeTimer").textContent = durationText(seconds);
 }
+
 
 // --------------------------------------------------
 // HISTÓRICO
@@ -429,101 +569,82 @@ function renderHistory() {
     .sort((a, b) =>
       (b.inicio || "").localeCompare(a.inicio || "")
     )
-    .slice(0, 12);
+    .slice(0, 15);
 
   $("historyRows").innerHTML = records.length
-    ? records.map(x => {
-        const status =
-          x.status === "concluida"
-            ? "Concluída"
-            : x.status === "em_andamento"
-              ? "Em andamento"
-              : "Interrompida";
+    ? records.map(item => {
+        const status = {
+          concluida: "Concluída",
+          em_andamento: "Em andamento",
+          interrompida: "Interrompida"
+        }[item.status] || item.status || "—";
 
-        const cls =
-          x.status === "em_andamento"
-            ? "active"
-            : x.status === "interrompida"
-              ? "interrupted"
-              : "";
+        const cls = {
+          em_andamento: "active",
+          interrompida: "interrupted",
+          concluida: "completed"
+        }[item.status] || "";
 
-        return `<tr>
-          <td>${escapeHtml(x.rotina_nome || x.rotina_id)}</td>
-          <td>${escapeHtml(x.categoria_nome || "—")}</td>
-          <td>${formatTime(x.inicio)}</td>
-          <td>${formatTime(x.fim)}</td>
-          <td>${durationText(x.duracao_segundos)}</td>
-          <td><span class="pill ${cls}">${status}</span></td>
-        </tr>`;
+        return `
+          <tr>
+            <td>${escapeHtml(item.rotina_nome || item.rotina_id)}</td>
+            <td>${escapeHtml(item.categoria_nome || "—")}</td>
+            <td>${escapeHtml(item.horario_previsto || "—")}</td>
+            <td>${formatTime(item.inicio)}</td>
+            <td>${formatTime(item.fim)}</td>
+            <td>${durationText(item.duracao_segundos)}</td>
+            <td><span class="pill ${cls}">${escapeHtml(status)}</span></td>
+          </tr>
+        `;
       }).join("")
-    : `<tr><td colspan="6" class="empty">Nenhuma execução registrada ainda.</td></tr>`;
+    : `<tr><td colspan="7" class="empty">Nenhuma execução registrada ainda.</td></tr>`;
 }
 
-// --------------------------------------------------
-// UTILITÁRIOS
-// --------------------------------------------------
-
-function escapeHtml(value) {
-  return String(value ?? "").replace(/[&<>"']/g, c => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  })[c]);
-}
-
-function safeUrl(value) {
-  try {
-    const u = new URL(value);
-
-    if (u.protocol === "http:" || u.protocol === "https:") {
-      return escapeHtml(u.href);
-    }
-  } catch (_) {}
-
-  return "#";
-}
 
 // --------------------------------------------------
 // ATUALIZAÇÃO DA APLICAÇÃO
 // --------------------------------------------------
 
 async function refresh() {
-  appState = await api("/api/state");
+  if (refreshing) return;
 
-  // Se já existe uma execução ativa, cancela a ocorrência correspondente.
-  if (appState.ativa) {
-    dismissOccurrenceForStartedRoutine(appState.ativa.rotina_id);
+  refreshing = true;
+
+  try {
+    appState = await api("/api/state");
+
+    renderStats();
+    renderCategories();
+    renderActive();
+    renderHistory();
+
+    checkScheduledNotifications();
+  } finally {
+    refreshing = false;
   }
-
-  renderStats();
-  renderCategories();
-  renderActive();
-  renderHistory();
-
-  checkScheduledNotifications();
 }
 
+
 // --------------------------------------------------
-// INICIAR E FINALIZAR ROTINAS
+// INICIAR E FINALIZAR
 // --------------------------------------------------
 
-async function startRoutine(id) {
+async function startRoutine(routineId, scheduledTime) {
   try {
     await api("/api/start", {
       method: "POST",
-      body: JSON.stringify({ rotina_id: id })
+      body: JSON.stringify({
+        rotina_id: routineId,
+        horario_previsto: scheduledTime
+      })
     });
 
-    dismissOccurrenceForStartedRoutine(id);
-
     await refresh();
 
-    toast("Tarefa iniciada. O tempo está sendo registrado.");
+    toast(`Execução ${scheduledTime} iniciada.`);
   } catch (error) {
     toast(error.message);
-    await refresh();
+    await refresh().catch(() => {});
   }
 }
 
@@ -542,6 +663,7 @@ async function finishRoutine() {
     toast(error.message);
   }
 }
+
 
 // --------------------------------------------------
 // INICIALIZAÇÃO
@@ -568,24 +690,20 @@ updateNotificationButton();
 
 refresh().catch(error => toast(error.message));
 
-// Atualiza o cronômetro a cada segundo.
 tickHandle = setInterval(() => {
   if (appState?.ativa) {
     updateTimer();
   }
 }, 1000);
 
-// Verifica os horários a cada 15 segundos.
 notificationHandle = setInterval(() => {
   checkScheduledNotifications();
 }, 15000);
 
-// Atualiza os dados da API a cada 30 segundos.
-setInterval(() => {
+refreshHandle = setInterval(() => {
   refresh().catch(() => {});
 }, 30000);
 
-// Verifica novamente quando o usuário retorna à aba.
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
     refresh().catch(() => {});
